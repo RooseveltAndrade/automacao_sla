@@ -1,0 +1,24 @@
+# Ambiente virtual
+venv/
+.venv/
+
+# Cache python
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+logs/
+
+# Banco local se existir
+*.db
+
+# Arquivos sensíveis
+.env
+
+# Dados (ignora somente planilhas)
+data/*.xlsx
+data/*.xls
+
+# Se tiver exports / prints
+exports/
