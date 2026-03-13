@@ -1,0 +1,6 @@
+python-dotenv
+requests
+msal
+pandas
+openpyxl
+py-zabbix

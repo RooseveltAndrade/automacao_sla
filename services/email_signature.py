@@ -21,10 +21,12 @@ def build_signature_html(
     titulo: str = "Governança / SLA",
     subtitulo: str = "Indicadores de Disponibilidade | Infraestrutura",
     email: str = "governanca.ti@gpssa.com.br",
-    teams_1_label: str = "Fale com a Laís no Teams",
-    teams_1_link: str = "https://teams.microsoft.com/l/chat/0/0?users=lais.cosme@gpssa.com.br",
-    teams_2_label: str = "Fale com o Lucas no Teams",
-    teams_2_link: str = "https://teams.microsoft.com/l/chat/0/0?users=lucas.barreto@gpssa.com.br",
+    teams_1_label: str = "Fale com o Felipe B. Oliveira no Teams",
+    teams_1_link: str = "https://teams.microsoft.com/l/chat/0/0?users=felipe.b.oliveira@gpssa.com.br",
+    teams_2_label: str = "Fale com o Michel Santos no Teams",
+    teams_2_link: str = "https://teams.microsoft.com/l/chat/0/0?users=michel_santos@gpssa.com.br",
+    teams_3_label: str = "Fale com o Joao Gama no Teams",
+    teams_3_link: str = "https://teams.microsoft.com/l/chat/0/0?users=joao.gama@gpssa.com.br",
     assinatura_gif_cid: Optional[str] = "assinatura_gif",
 ) -> str:
     """
@@ -53,7 +55,8 @@ def build_signature_html(
         f"</div>"
         "<div style='margin-top:6px; font-size:12.5px; line-height:1.15;'>"
         f"<a href='{teams_1_link}' style='color:#1f4e9a;'>{teams_1_label}</a> | "
-        f"<a href='{teams_2_link}' style='color:#1f4e9a;'>{teams_2_label}</a>"
+        f"<a href='{teams_2_link}' style='color:#1f4e9a;'>{teams_2_label}</a> | "
+        f"<a href='{teams_3_link}' style='color:#1f4e9a;'>{teams_3_label}</a>"
         "</div>"
         "</td>"
         "</tr>"
