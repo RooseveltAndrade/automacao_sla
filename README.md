@@ -36,6 +36,12 @@ Obrigatorias:
 Teste:
 - SAFE_TEST_TO=email@dominio.com.br (quando preenchido, todos os envios vao para esse email)
 
+Comportamento em teste:
+- `SAFE_TEST_TO` sobrescreve apenas os destinatarios `To`.
+- Os emails enviados continuam saindo da conta configurada em `M365_SENDER_UPN`.
+- Os rascunhos sao criados na caixa da conta autenticada no cache delegado. No fluxo atual, isso normalmente coincide com `M365_SENDER_UPN`.
+- Para teste controlado, use `DRY_RUN=False` junto com `SAFE_TEST_TO` preenchido.
+
 Cache delegado (rascunho):
 - GRAPH_USE_AUTH_CACHE_FOR_DRAFT=True
 - GRAPH_AUTH_CACHE_PATH=.auth_cache/sla_token_cache.bin
@@ -57,7 +63,7 @@ PowerShell:
 
 Esse comando gera o cache em .auth_cache/sla_token_cache.bin.
 
-## 🗓️ Agendar no Windows (dia 5 as 10:00)
+## 🗓️ Agendar no Windows (dia 3 as 10:00)
 
 1) Rodar o script de agendamento:
 
@@ -76,8 +82,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_main.ps1
 - Resumo XLSX:
   exports/AAAA/mes_abrev/DD/envio_sla_mes.xlsx
 
+Colunas do resumo XLSX:
+- `emails_originais`: destinatarios vindos da planilha.
+- `emails_utilizados`: destinatarios efetivamente usados na execucao.
+- `safe_test_to_aplicado`: valor aplicado via `SAFE_TEST_TO`, quando houver.
+- `anexos_pdf`: nome dos PDFs anexados.
+- `anexos_pdf_paths`: caminho completo dos PDFs anexados.
+- `anexos_pdf_tids`: TIDs FortiAnalyzer usados para cada PDF.
+- `anexos_pdf_reports`: nome do relatorio Forti associado ao PDF.
+- `resultado`: resultado final da linha (`enviado`, `rascunho_criado`, `dry_run_send`, `dry_run_draft`).
+- `draft_id`: id do rascunho no Graph quando a linha gera rascunho real.
+
 ## 🧭 Observacoes
 
 - SLA >= 99: envia email.
 - SLA < 98: cria rascunho no Outlook.
 - SLA entre 98 e 99: ignora.
+- O PDF anexado e selecionado por correspondencia da regional Forti (`NOME_REG_FORTI`) com deduplicacao por identidade do relatorio.

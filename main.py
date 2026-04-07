@@ -1,12 +1,23 @@
+# Ajuste sys.path para garantir imports robustos
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import os
 import logging
 import pandas as pd
-from pathlib import Path
 from datetime import datetime, timedelta
 import warnings
 import urllib3
+import unicodedata
+import re
+from collections import defaultdict
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Integração: Importa função principal do downloader de PDFs
+from scripts.fortianalyzer_api_modelo1 import main as baixar_pdfs_fortianalyzer
 
 from clients.graph_client import GraphMailClient
 from clients.zabbix_client import ZabbixClient
@@ -15,15 +26,14 @@ from services.email_signature import build_signature_inline_attachments
 from services.recipients_service import RecipientsService
 from services.sla_service import SlaService
 
-
 # ======================================================
 # LOG
 # ======================================================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("sla_mensal")
 
-# Carrega .env (override garante que o .env prevaleça)
-load_dotenv(override=True)
+# Carrega .env sem sobrescrever variaveis ja definidas no processo.
+load_dotenv(override=False)
 
 DRY_RUN = os.getenv("DRY_RUN", "True").strip().lower() in ("1", "true", "yes", "y", "on")
 USE_ZABBIX = os.getenv("USE_ZABBIX", "False").strip().lower() in ("1", "true", "yes", "y", "on")
@@ -39,6 +49,116 @@ if not ZABBIX_VERIFY_SSL:
 
 def main():
     base_dir = Path(__file__).resolve().parent
+
+    def normalize_match(value: str) -> str:
+        text = str(value or "").strip()
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        chunks = []
+        for ch in text.upper():
+            chunks.append(ch if ch.isalnum() else " ")
+        return " ".join("".join(chunks).split())
+
+    def extract_report_identity(value: str) -> str:
+        text = str(value or "").strip()
+        if text.lower().endswith(".pdf"):
+            text = Path(text).stem
+        match = re.match(r"^(.*?)-\d{4}-\d{2}-\d{2}-\d{4}-\d{4}(?:_\d+)?$", text)
+        if match:
+            text = match.group(1)
+        return normalize_match(text)
+
+    def matches_report_identity(candidate: str, expected: str) -> bool:
+        if not candidate or not expected:
+            return False
+        return candidate == expected or candidate.startswith(expected + " ")
+
+    def index_pdf_results(pdf_results: list[dict]) -> tuple[dict[str, list[Path]], dict[str, list[Path]]]:
+        by_regional: dict[str, list[Path]] = defaultdict(list)
+        by_forti: dict[str, list[Path]] = defaultdict(list)
+        for item in pdf_results or []:
+            pdf_path = Path(str(item.get("pdf") or "")).resolve()
+            if not pdf_path.exists():
+                continue
+
+            regional_planilha = normalize_match(item.get("regional_planilha", ""))
+            regional_forti = extract_report_identity(item.get("regional_forti", ""))
+            report_identity = extract_report_identity(item.get("report_name") or item.get("filename") or pdf_path.name)
+            if regional_planilha:
+                by_regional[regional_planilha].append(pdf_path)
+            if regional_forti:
+                by_forti[regional_forti].append(pdf_path)
+            elif report_identity:
+                by_forti[report_identity].append(pdf_path)
+        return by_regional, by_forti
+
+    def dedupe_paths(paths: list[Path], pdf_metadata_by_path: dict[str, dict]) -> list[Path]:
+        unique_by_identity: dict[str, Path] = {}
+        rank_by_identity: dict[str, tuple[str, str]] = {}
+        for path in paths:
+            resolved_path = path.resolve()
+            metadata = pdf_metadata_by_path.get(str(resolved_path), {})
+            identity = extract_report_identity(metadata.get("regional_forti") or metadata.get("report_name") or path.name)
+            if not identity:
+                identity = str(resolved_path)
+
+            rank = (
+                str(metadata.get("report_name") or path.name),
+                path.name,
+            )
+            current_rank = rank_by_identity.get(identity)
+            if current_rank is None or rank > current_rank:
+                unique_by_identity[identity] = resolved_path
+                rank_by_identity[identity] = rank
+
+        return list(unique_by_identity.values())
+
+    def resolve_pdf_paths_for_regional(
+        regional_nome: str,
+        *,
+        recipients_service: RecipientsService,
+        by_regional: dict[str, list[Path]],
+        by_forti: dict[str, list[Path]],
+        pdf_dir: Path,
+    ) -> list[Path]:
+        normalized_regional = normalize_match(regional_nome)
+        resolved = list(by_regional.get(normalized_regional, []))
+
+        forti_name = recipients_service.get_forti_name_by_regional(regional_nome)
+        normalized_forti = extract_report_identity(forti_name or "")
+        if normalized_forti:
+            resolved.extend(by_forti.get(normalized_forti, []))
+            if not resolved:
+                for report_identity, paths in by_forti.items():
+                    if matches_report_identity(report_identity, normalized_forti):
+                        resolved.extend(paths)
+
+        if not resolved and normalized_forti and pdf_dir.exists():
+            for pdf_path in pdf_dir.glob("*.pdf"):
+                if matches_report_identity(extract_report_identity(pdf_path.name), normalized_forti):
+                    resolved.append(pdf_path.resolve())
+
+        return dedupe_paths(resolved, pdf_metadata_by_path)
+
+    def build_pdf_metadata(pdf_results: list[dict]) -> dict[str, dict]:
+        metadata: dict[str, dict] = {}
+        for item in pdf_results or []:
+            pdf_path = Path(str(item.get("pdf") or "")).resolve()
+            if not pdf_path.exists():
+                continue
+            metadata[str(pdf_path)] = item
+        return metadata
+
+    # Passo 1: Baixar os PDFs do FortiAnalyzer antes de qualquer processamento
+    pdf_results = []
+    try:
+        print("[INFO] Iniciando download dos relatórios PDF do FortiAnalyzer...")
+        pdf_results = baixar_pdfs_fortianalyzer() or []
+        print("[INFO] Download dos relatórios PDF concluído.")
+    except Exception as e:
+        print(f"[ERRO] Falha ao baixar relatórios do FortiAnalyzer: {e}")
+        # Dependendo da criticidade, pode-se abortar ou apenas logar o erro
+        # raise
 
     # Referencia do mes anterior
     hoje = datetime.now()
@@ -91,12 +211,8 @@ def main():
         cid="assinatura_gif",
     )
 
-    meses_slug = [
-        "jan", "fev", "mar", "abr", "mai", "jun",
-        "jul", "ago", "set", "out", "nov", "dez",
-    ]
     hoje_dir = f"{hoje.day:02d}"
-    mes_slug = meses_slug[hoje.month - 1]
+    mes_slug = hoje.strftime("%b").lower()
     export_root = (
         base_dir
         / "exports"
@@ -105,6 +221,9 @@ def main():
         / hoje_dir
     )
     export_root.mkdir(parents=True, exist_ok=True)
+    pdf_dir = export_root / "pdf_do_mês"
+    pdfs_by_regional, pdfs_by_forti = index_pdf_results(pdf_results)
+    pdf_metadata_by_path = build_pdf_metadata(pdf_results)
     summary_rows = []
 
     for item in regionais_ok:
@@ -142,27 +261,54 @@ def main():
         # Junta anexos (template + assinatura)
         final_attachments = []
         final_attachments.extend(attachments or [])
+        pdf_paths = resolve_pdf_paths_for_regional(
+            regional_nome,
+            recipients_service=recipients,
+            by_regional=pdfs_by_regional,
+            by_forti=pdfs_by_forti,
+            pdf_dir=pdf_dir,
+        )
+        for pdf_path in pdf_paths:
+            final_attachments.append(GraphMailClient.make_file_attachment(pdf_path))
         final_attachments.extend(signature_attachments or [])
+        if pdf_paths:
+            logger.info(
+                "PDF(s) anexado(s) para %s: %s",
+                regional_nome,
+                ", ".join(path.name for path in pdf_paths),
+            )
+        else:
+            logger.warning("Nenhum PDF localizado para a regional: %s", regional_nome)
 
         # Destinatarios da planilha
-        to_emails = recipients.get_emails_by_regional(regional_nome)
+        original_to_emails = recipients.get_emails_by_regional(regional_nome)
+        to_emails = list(original_to_emails)
         if test_emails:
             to_emails = test_emails
         if not to_emails:
             logger.warning("Sem emails na planilha para regional: %s", regional_nome)
 
-        summary_rows.append(
-            {
-                "regional": regional_nome,
-                "sla": f"{sla:.1f}",
-                "acao": "enviar" if target == "send" else "rascunho",
-                "emails": ";".join(to_emails),
-                "assunto": subject,
-            }
-        )
+        pdf_meta = [pdf_metadata_by_path.get(str(path.resolve()), {}) for path in pdf_paths]
+        summary_row = {
+            "regional": regional_nome,
+            "sla": f"{sla:.1f}",
+            "acao": "enviar" if target == "send" else "rascunho",
+            "emails_originais": ";".join(original_to_emails),
+            "emails_utilizados": ";".join(to_emails),
+            "safe_test_to_aplicado": ";".join(test_emails),
+            "assunto": subject,
+            "anexos_pdf": ";".join(path.name for path in pdf_paths),
+            "anexos_pdf_paths": ";".join(str(path) for path in pdf_paths),
+            "anexos_pdf_tids": ";".join(str(meta.get("tid", "")) for meta in pdf_meta if meta),
+            "anexos_pdf_reports": ";".join(str(meta.get("report_name", "")) for meta in pdf_meta if meta),
+            "resultado": "pendente",
+            "draft_id": "",
+        }
 
         if target == "send":
             if DRY_RUN:
+                summary_row["resultado"] = "dry_run_send"
+                summary_rows.append(summary_row)
                 logger.info(
                     "[DRY_RUN] Enviaria: %s | sla=%.1f | para=%s | subject=%s",
                     regional_nome,
@@ -181,9 +327,13 @@ def main():
                 attachments=final_attachments,
                 # reply_to pode ser configurado no .env (REPLY_TO_GROUP_EMAIL)
             )
+            summary_row["resultado"] = "enviado"
+            summary_rows.append(summary_row)
             continue
 
         if DRY_RUN:
+            summary_row["resultado"] = "dry_run_draft"
+            summary_rows.append(summary_row)
             logger.info(
                 "[DRY_RUN] Criaria rascunho: %s | sla=%.1f | para=%s | subject=%s",
                 regional_nome,
@@ -200,6 +350,9 @@ def main():
             is_html=True,
             attachments=final_attachments,
         )
+        summary_row["resultado"] = "rascunho_criado"
+        summary_row["draft_id"] = draft_id
+        summary_rows.append(summary_row)
         logger.info(
             "[RASCUNHO] %s | sla=%.1f | para=%s | draft_id=%s",
             regional_nome,

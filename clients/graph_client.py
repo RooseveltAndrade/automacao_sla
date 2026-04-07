@@ -1,5 +1,7 @@
 import os
 import logging
+import base64
+import mimetypes
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -128,6 +130,27 @@ class GraphMailClient:
             if content_id:
                 att["contentId"] = content_id
         return att
+
+    @classmethod
+    def make_file_attachment(
+        cls,
+        file_path: str | Path,
+        *,
+        name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        is_inline: bool = False,
+        content_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        path = Path(file_path)
+        data_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        guessed_type = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return cls._make_attachment(
+            name=name or path.name,
+            content_type=guessed_type,
+            data_b64=data_b64,
+            is_inline=is_inline,
+            content_id=content_id,
+        )
 
     def send_mail(
         self,
