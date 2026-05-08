@@ -1,5 +1,17 @@
 import pandas as pd
+import re
 import unicodedata
+
+
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+EMAIL_FIELD_CANDIDATES = {
+    "email": ("EMAIL", "E-MAIL", "MAIL"),
+    "email_diretor": ("EMAIL_DIRETOR", "DIRETOR_EMAIL", "EMAIL DIRETOR", "E-MAIL DIRETOR"),
+    "email_gerente": ("EMAIL_GERENTE", "GERENTE_EMAIL", "EMAIL GERENTE", "E-MAIL GERENTE"),
+    "email_apoio_1": ("EMAIL_APOIO_1", "EMAIL APOIO 1", "E-MAIL APOIO 1"),
+    "email_apoio_2": ("EMAIL_APOIO_2", "EMAIL APOIO 2", "E-MAIL APOIO 2"),
+    "email_apoio": ("EMAIL_APOIO", "APOIO_EMAIL", "EMAIL APOIO", "E-MAIL APOIO"),
+}
 
 
 def _norm_txt(v) -> str:
@@ -79,12 +91,12 @@ class RecipientsService:
 
     def get_emails_by_regional(self, regional: str) -> list[str]:
         # tenta achar colunas de email
-        col_email_ger = self._find_col("EMAIL_GERENTE", "GERENTE_EMAIL", "EMAIL GERENTE", "E-MAIL GERENTE")
-        col_email_dir = self._find_col("EMAIL_DIRETOR", "DIRETOR_EMAIL", "EMAIL DIRETOR", "E-MAIL DIRETOR")
-        col_email_apo1 = self._find_col("EMAIL_APOIO_1", "EMAIL APOIO 1", "E-MAIL APOIO 1")
-        col_email_apo2 = self._find_col("EMAIL_APOIO_2", "EMAIL APOIO 2", "E-MAIL APOIO 2")
-        col_email_apo = self._find_col("EMAIL_APOIO", "APOIO_EMAIL", "EMAIL APOIO", "E-MAIL APOIO")
-        col_email_unico = self._find_col("EMAIL", "E-MAIL", "MAIL")
+        col_email_ger = self._find_col(*EMAIL_FIELD_CANDIDATES["email_gerente"])
+        col_email_dir = self._find_col(*EMAIL_FIELD_CANDIDATES["email_diretor"])
+        col_email_apo1 = self._find_col(*EMAIL_FIELD_CANDIDATES["email_apoio_1"])
+        col_email_apo2 = self._find_col(*EMAIL_FIELD_CANDIDATES["email_apoio_2"])
+        col_email_apo = self._find_col(*EMAIL_FIELD_CANDIDATES["email_apoio"])
+        col_email_unico = self._find_col(*EMAIL_FIELD_CANDIDATES["email"])
 
         row = self.get_row_by_regional(regional)
         if row is None:
@@ -106,6 +118,8 @@ class RecipientsService:
                 if not email:
                     continue
                 if email.upper().startswith("SEM_"):
+                    continue
+                if not EMAIL_PATTERN.match(email):
                     continue
                 emails.append(email)
 
@@ -132,6 +146,26 @@ class RecipientsService:
                 seen.add(e)
                 out.append(e)
         return out
+
+    def get_email_fields_by_regional(self, regional: str) -> dict[str, str]:
+        row = self.get_row_by_regional(regional)
+        result = {key: "" for key in EMAIL_FIELD_CANDIDATES}
+        if row is None:
+            return result
+
+        for key, candidates in EMAIL_FIELD_CANDIDATES.items():
+            col = self._find_col(*candidates)
+            if not col:
+                continue
+            value = row.get(col)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text or text.lower() == "nan":
+                continue
+            result[key] = text
+
+        return result
 
     def get_forti_name_by_regional(self, regional: str) -> str | None:
         row = self.get_row_by_regional(regional)

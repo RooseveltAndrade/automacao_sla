@@ -42,6 +42,23 @@ def build_signature_html(
             f"</td>"
         )
 
+    team_links = []
+    for label, link in (
+        (teams_1_label, teams_1_link),
+        (teams_2_label, teams_2_link),
+        (teams_3_label, teams_3_link),
+    ):
+        if str(label or "").strip() and str(link or "").strip():
+            team_links.append(f"<a href='{link}' style='color:#1f4e9a;'>{label}</a>")
+
+    team_links_html = ""
+    if team_links:
+        team_links_html = (
+            "<div style='margin-top:6px; font-size:12.5px; line-height:1.15;'>"
+            + " | ".join(team_links)
+            + "</div>"
+        )
+
     signature_html = (
         "<table role='presentation' cellpadding='0' cellspacing='0' "
         "style='margin-top:14px; border-collapse:collapse;'>"
@@ -53,11 +70,7 @@ def build_signature_html(
         f"<div style='margin-top:4px; line-height:1.15;'>"
         f"<a href='mailto:{email}' style='color:#1f4e9a; font-size:13px;'>{email}</a>"
         f"</div>"
-        "<div style='margin-top:6px; font-size:12.5px; line-height:1.15;'>"
-        f"<a href='{teams_1_link}' style='color:#1f4e9a;'>{teams_1_label}</a> | "
-        f"<a href='{teams_2_link}' style='color:#1f4e9a;'>{teams_2_label}</a> | "
-        f"<a href='{teams_3_link}' style='color:#1f4e9a;'>{teams_3_label}</a>"
-        "</div>"
+        f"{team_links_html}"
         "</td>"
         "</tr>"
         "</table>"

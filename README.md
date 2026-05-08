@@ -35,6 +35,11 @@ Obrigatorias:
 
 Teste:
 - SAFE_TEST_TO=email@dominio.com.br (quando preenchido, todos os envios vao para esse email)
+- SUMMARY_EMAIL_RECIPIENTS=email@dominio.com.br[,outro@dominio.com.br] (destinatarios do sumario executivo por email)
+- SUMMARY_SAFE_TEST_TO=email@dominio.com.br (sobrescreve apenas os destinatarios do sumario executivo por email)
+- ENABLE_TEAMS_SUMMARY=True|False (habilita envio do sumario para Teams)
+- TEAMS_SUMMARY_RECIPIENTS=email@dominio.com.br[,outro@dominio.com.br] (destinatarios do sumario executivo no Teams)
+- TEAMS_SUMMARY_SAFE_TEST_TO=email@dominio.com.br (sobrescreve apenas os destinatarios do sumario executivo no Teams)
 
 Comportamento em teste:
 - `SAFE_TEST_TO` sobrescreve apenas os destinatarios `To`.
@@ -46,6 +51,10 @@ Cache delegado (rascunho):
 - GRAPH_USE_AUTH_CACHE_FOR_DRAFT=True
 - GRAPH_AUTH_CACHE_PATH=.auth_cache/sla_token_cache.bin
 - GRAPH_DELEGATED_SCOPES=Mail.ReadWrite
+
+Cache delegado (Teams sumario):
+- reutiliza `GRAPH_AUTH_CACHE_PATH`
+- inclua tambem os escopos `Chat.ReadWrite`, `ChatMessage.Send` e `User.Read` em `GRAPH_DELEGATED_SCOPES`
 
 ## ▶️ Como rodar
 
@@ -77,10 +86,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_main.ps1
 ```
 
+3) Reenviar apenas o sumario (sem reenviar os emails das regionais):
+
+```powershell
+& "C:\automacao_sla\.venv\Scripts\python.exe" .\scripts\send_summary_test.py
+```
+
 ## 📄 Saidas
 
 - Resumo XLSX:
   exports/AAAA/mes_abrev/DD/envio_sla_mes.xlsx
+- Sumario executivo por email:
+  tabela HTML com resumo por regional e tabela separada de problemas locais detectados na execucao
 
 Colunas do resumo XLSX:
 - `emails_originais`: destinatarios vindos da planilha.
@@ -92,6 +109,7 @@ Colunas do resumo XLSX:
 - `anexos_pdf_reports`: nome do relatorio Forti associado ao PDF.
 - `resultado`: resultado final da linha (`enviado`, `rascunho_criado`, `dry_run_send`, `dry_run_draft`).
 - `draft_id`: id do rascunho no Graph quando a linha gera rascunho real.
+- `problemas`: detalhe de falha ou alerta local detectado para a regional.
 
 ## 🧭 Observacoes
 
@@ -99,3 +117,7 @@ Colunas do resumo XLSX:
 - SLA < 98: cria rascunho no Outlook.
 - SLA entre 98 e 99: ignora.
 - O PDF anexado e selecionado por correspondencia da regional Forti (`NOME_REG_FORTI`) com deduplicacao por identidade do relatorio.
+- O sumario executivo por email usa `SUMMARY_EMAIL_RECIPIENTS`; se essa variavel nao estiver preenchida, o sumario nao e enviado.
+- `SUMMARY_SAFE_TEST_TO` e `TEAMS_SUMMARY_SAFE_TEST_TO` permitem testar apenas o sumario sem alterar a lista oficial de destinatarios.
+- O sumario do Teams usa `TEAMS_SUMMARY_RECIPIENTS` e depende de cache delegado com escopos de chat.
+- O sumario executivo cobre falhas detectadas localmente na execucao. NDRs que chegam depois no Outlook nao sao confirmados no momento do envio pelo Graph.
